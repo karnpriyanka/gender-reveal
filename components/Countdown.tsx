@@ -87,8 +87,8 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
     // Animate sparkles
     sparkleRefs.current.forEach((sparkle, index) => {
       gsap.to(sparkle, {
-        opacity: [0, 1, 0],
-        scale: [0, 1.5, 0],
+        opacity: [0, 1, 0] as any,
+        scale: [0, 1.5, 0] as any,
         duration: 2,
         delay: index * 0.1,
         repeat: -1,
