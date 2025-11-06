@@ -59,37 +59,21 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
   }, [isSamsungTV])
 
   // Attempt to play video with fallback strategies
-  const attemptPlay = useCallback(async (strategy: 'muted' | 'unmuted' | 'user' = 'muted') => {
+  const attemptPlay = useCallback(async (muted: boolean = true) => {
     if (!videoRef.current) return false
 
     try {
-      // Set mute based on strategy
-      if (strategy === 'muted') {
-        videoRef.current.muted = true
-      } else if (strategy === 'unmuted' && hasUserInteracted) {
-        videoRef.current.muted = false
-      }
-
+      videoRef.current.muted = muted
       await videoRef.current.play()
-      
-      // Success - unmute after a short delay if it was muted
-      if (strategy === 'muted' && videoRef.current.muted) {
-        setTimeout(() => {
-          if (videoRef.current && hasUserInteracted) {
-            videoRef.current.muted = false
-          }
-        }, 500)
-      }
-      
       setIsPlaying(true)
       setAutoplayFailed(false)
       setError(null)
       return true
     } catch (err: any) {
-      console.warn(`Play attempt failed (strategy: ${strategy}):`, err)
+      console.warn(`Play attempt failed (muted: ${muted}):`, err)
       return false
     }
-  }, [hasUserInteracted])
+  }, [])
 
   useEffect(() => {
     if (!showVideo || !videoRef.current) return
@@ -113,15 +97,24 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
     
     video.loop = true
     video.preload = 'auto'
+    // Default to unmuted
+    video.muted = false
 
-    // Strategy 1: Try muted autoplay immediately
+    // Strategy 1: Try unmuted autoplay first (may fail due to browser restrictions)
     const tryAutoplay = async () => {
-      const success = await attemptPlay('muted')
+      // First try unmuted autoplay
+      let success = await attemptPlay(false) // Unmuted autoplay
+      
+      // If unmuted autoplay fails, fallback to muted autoplay
+      if (!success) {
+        console.log('Unmuted autoplay blocked, trying muted autoplay...')
+        success = await attemptPlay(true) // Muted autoplay as fallback
+      }
       
       if (!success && retryCount < 3) {
-        // Strategy 2: Retry after a delay
+        // Strategy 2: Retry after a delay (try muted)
         playAttemptRef.current = setTimeout(async () => {
-          const retrySuccess = await attemptPlay('muted')
+          const retrySuccess = await attemptPlay(true) // Muted autoplay retry
           if (!retrySuccess) {
             setRetryCount(prev => prev + 1)
             setAutoplayFailed(true)
@@ -329,7 +322,7 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
           })
         }
 
-        // Set properties explicitly for Samsung TV
+        // Set properties explicitly for Samsung TV - unmuted for user interaction
         video.muted = false
         video.loop = true
         
@@ -346,13 +339,12 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
       return
     }
 
-    // Standard browser handling
+    // Standard browser handling - user interaction allows unmuted playback
     try {
-      // Try unmuted play on user interaction
-      const success = await attemptPlay('unmuted')
+      // On user interaction, we can play unmuted
+      const success = await attemptPlay(false) // Unmuted play
       if (!success) {
-        // Fallback to muted if unmuted fails
-        await attemptPlay('muted')
+        setError('Unable to play video. Please try again.')
       }
     } catch (err) {
       console.error('Error in handlePlay:', err)
@@ -394,7 +386,7 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
           onEnded={handleEnded}
           onClick={handlePlay}
           playsInline
-          muted={isSamsungTV ? false : !hasUserInteracted}
+          muted={false}
           loop
           preload={isSamsungTV ? "metadata" : "auto"}
         >
