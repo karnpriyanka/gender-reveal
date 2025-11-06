@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { gsap } from 'gsap'
+import { detectSamsungTV } from '@/lib/samsung-tv'
 
 interface VideoPlayerProps {
   src: string
@@ -19,21 +20,43 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
   const [hasUserInteracted, setHasUserInteracted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [isSamsungTV, setIsSamsungTV] = useState(false)
+  const [videoLoaded, setVideoLoaded] = useState(false)
+  const [videoCanPlay, setVideoCanPlay] = useState(false)
   const playAttemptRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Detect Samsung TV on mount
+  useEffect(() => {
+    const tvInfo = detectSamsungTV()
+    setIsSamsungTV(tvInfo.isSamsungTV)
+    
+    if (tvInfo.isSamsungTV) {
+      console.log('Samsung TV detected:', tvInfo)
+      // On Samsung TV, autoplay will almost certainly fail
+      setAutoplayFailed(true)
+      setShowControls(true) // Always show controls on Samsung TV
+    }
+  }, [])
 
   useEffect(() => {
     if (containerRef.current) {
-      // Ensure full opacity from the start
-      gsap.set(containerRef.current, { opacity: 1 })
-      
-      // Animate only scale, not opacity
-      gsap.from(containerRef.current, {
-        scale: 0.8,
-        duration: 1,
-        ease: 'power3.out',
-      })
+      // Skip GSAP animations on Samsung TV (may not be supported)
+      if (!isSamsungTV) {
+        // Ensure full opacity from the start
+        gsap.set(containerRef.current, { opacity: 1 })
+        
+        // Animate only scale, not opacity
+        gsap.from(containerRef.current, {
+          scale: 0.8,
+          duration: 1,
+          ease: 'power3.out',
+        })
+      } else {
+        // Simple CSS animation for Samsung TV
+        containerRef.current.style.opacity = '1'
+      }
     }
-  }, [])
+  }, [isSamsungTV])
 
   // Attempt to play video with fallback strategies
   const attemptPlay = useCallback(async (strategy: 'muted' | 'unmuted' | 'user' = 'muted') => {
@@ -69,9 +92,25 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
   }, [hasUserInteracted])
 
   useEffect(() => {
-    if (!autoplay || !showVideo || !videoRef.current || hasUserInteracted) return
+    if (!showVideo || !videoRef.current) return
 
     const video = videoRef.current
+    
+    // Samsung TV specific settings
+    if (isSamsungTV) {
+      // Samsung TV requires metadata preload, not auto
+      video.preload = 'metadata'
+      // Always show controls on Samsung TV
+      setShowControls(true)
+      // Autoplay will not work on Samsung TV, so skip it
+      video.loop = true
+      setAutoplayFailed(true) // Show play button immediately
+      return // Skip autoplay attempts on Samsung TV
+    }
+
+    // Standard browser settings
+    if (!autoplay || hasUserInteracted) return
+    
     video.loop = true
     video.preload = 'auto'
 
@@ -175,24 +214,149 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
       video.removeEventListener('pause', handleVideoPause)
       video.removeEventListener('playing', handleVideoPlaying)
     }
-  }, [autoplay, showVideo, retryCount, isPlaying, hasUserInteracted, attemptPlay])
+  }, [autoplay, showVideo, retryCount, isPlaying, hasUserInteracted, attemptPlay, isSamsungTV])
+
+  // Samsung TV specific video loading handler
+  useEffect(() => {
+    if (!videoRef.current || !isSamsungTV) return
+
+    const video = videoRef.current
+
+    const handleLoadedData = () => {
+      console.log('Samsung TV: Video data loaded')
+      setVideoLoaded(true)
+    }
+
+    const handleCanPlayThrough = () => {
+      console.log('Samsung TV: Video can play through')
+      setVideoCanPlay(true)
+    }
+
+    const handleError = (e: Event) => {
+      const videoError = video.error
+      if (videoError) {
+        let errorMessage = 'Unable to play video on Samsung TV.'
+        
+        switch (videoError.code) {
+          case videoError.MEDIA_ERR_ABORTED:
+            errorMessage = 'Video playback was aborted. Please try again.'
+            break
+          case videoError.MEDIA_ERR_NETWORK:
+            errorMessage = 'Network error. Please check your connection and try again.'
+            break
+          case videoError.MEDIA_ERR_DECODE:
+            errorMessage = 'Video format not supported. Please use MP4 with H.264 codec.'
+            break
+          case videoError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMessage = 'Video format not supported by Samsung TV. Use MP4 (H.264 + AAC) format.'
+            break
+        }
+        
+        console.error('Samsung TV video error:', errorMessage, videoError)
+        setError(errorMessage)
+        setAutoplayFailed(true)
+      }
+    }
+
+    const handlePlay = () => {
+      setIsPlaying(true)
+      setAutoplayFailed(false)
+      setError(null)
+    }
+
+    const handlePause = () => {
+      setIsPlaying(false)
+    }
+
+    video.addEventListener('loadeddata', handleLoadedData)
+    video.addEventListener('canplaythrough', handleCanPlayThrough)
+    video.addEventListener('error', handleError)
+    video.addEventListener('play', handlePlay)
+    video.addEventListener('pause', handlePause)
+
+    // Check codec support
+    if (video.canPlayType) {
+      const mp4Support = video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')
+      console.log('Samsung TV MP4 codec support:', mp4Support)
+      if (mp4Support === '') {
+        setError('MP4 format may not be supported. Please ensure video uses H.264 + AAC codecs.')
+      }
+    }
+
+    return () => {
+      video.removeEventListener('loadeddata', handleLoadedData)
+      video.removeEventListener('canplaythrough', handleCanPlayThrough)
+      video.removeEventListener('error', handleError)
+      video.removeEventListener('play', handlePlay)
+      video.removeEventListener('pause', handlePause)
+    }
+  }, [isSamsungTV, showVideo])
 
   const handlePlay = async () => {
-    if (videoRef.current) {
-      setHasUserInteracted(true)
-      setError(null)
+    if (!videoRef.current) return
+
+    setHasUserInteracted(true)
+    setError(null)
+
+    // Samsung TV specific handling
+    if (isSamsungTV) {
+      const video = videoRef.current
       
       try {
-        // Try unmuted play on user interaction
-        const success = await attemptPlay('unmuted')
-        if (!success) {
-          // Fallback to muted if unmuted fails
-          await attemptPlay('muted')
+        // Samsung TV requires video to be fully loaded
+        if (video.readyState < 3) {
+          // Wait for video to be ready
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error('Video load timeout'))
+            }, 10000)
+
+            const checkReady = () => {
+              if (video.readyState >= 3) {
+                clearTimeout(timeout)
+                video.removeEventListener('canplaythrough', checkReady)
+                resolve()
+              }
+            }
+
+            if (video.readyState >= 3) {
+              clearTimeout(timeout)
+              resolve()
+            } else {
+              video.addEventListener('canplaythrough', checkReady)
+              video.load() // Force reload if needed
+            }
+          })
         }
-      } catch (err) {
-        console.error('Error in handlePlay:', err)
-        setError('Unable to play video. Please try again.')
+
+        // Set properties explicitly for Samsung TV
+        video.muted = false
+        video.loop = true
+        
+        // Play on Samsung TV
+        await video.play()
+        setIsPlaying(true)
+        setAutoplayFailed(false)
+        console.log('Samsung TV: Video playing successfully')
+      } catch (err: any) {
+        console.error('Samsung TV play error:', err)
+        setError(`Unable to play video: ${err.message || 'Unknown error'}. Please ensure video is MP4 format with H.264 codec.`)
+        setAutoplayFailed(true)
       }
+      return
+    }
+
+    // Standard browser handling
+    try {
+      // Try unmuted play on user interaction
+      const success = await attemptPlay('unmuted')
+      if (!success) {
+        // Fallback to muted if unmuted fails
+        await attemptPlay('muted')
+      }
+    } catch (err) {
+      console.error('Error in handlePlay:', err)
+      setError('Unable to play video. Please try again.')
     }
   }
 
@@ -230,11 +394,14 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
           onEnded={handleEnded}
           onClick={handlePlay}
           playsInline
-          muted={!hasUserInteracted}
+          muted={isSamsungTV ? false : !hasUserInteracted}
           loop
-          preload="auto"
+          preload={isSamsungTV ? "metadata" : "auto"}
         >
           Your browser does not support the video tag.
+          {isSamsungTV && (
+            <p>Please use MP4 format with H.264 video codec and AAC audio codec.</p>
+          )}
         </video>
 
         {/* Fallback Play Overlay - Shows when autoplay fails */}
@@ -251,8 +418,13 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
             </button>
             
             {error && (
-              <div className="text-center px-4">
+              <div className="text-center px-4 max-w-md">
                 <p className="text-white text-lg font-semibold mb-2">{error}</p>
+                {isSamsungTV && (
+                  <p className="text-white/80 text-sm mb-3">
+                    Samsung TV requires MP4 format with H.264 (video) and AAC (audio) codecs.
+                  </p>
+                )}
                 <button
                   onClick={handleRetry}
                   className="text-pink-300 hover:text-pink-200 underline text-sm"
@@ -263,9 +435,16 @@ export default function VideoPlayer({ src, autoplay = true, onEnded, showVideo =
             )}
             
             {!error && (
-              <p className="text-white/90 text-lg font-medium">
-                Click to play the reveal video
-              </p>
+              <div className="text-center px-4">
+                <p className="text-white/90 text-lg font-medium mb-2">
+                  {isSamsungTV ? 'Press OK/Select on your remote to play' : 'Click to play the reveal video'}
+                </p>
+                {isSamsungTV && !videoCanPlay && (
+                  <p className="text-white/70 text-sm">
+                    Loading video...
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
