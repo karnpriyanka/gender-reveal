@@ -57,7 +57,7 @@ export default function HeroSection({ images }: HeroSectionProps) {
   }, [images.length])
 
   return (
-    <div ref={heroRef} className="relative min-h-screen flex items-center justify-center overflow-hidden">
+    <div ref={heroRef} className="relative min-h-screen flex justify-center overflow-hidden">
       {/* Background Images */}
       <div className="absolute inset-0">
         {images.length > 0 ? (
@@ -84,7 +84,7 @@ export default function HeroSection({ images }: HeroSectionProps) {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 text-center px-4 py-20">
+      <div className="relative z-10 text-center px-4 pt-32 md:pt-40 lg:pt-48 pb-20">
         <h1
           ref={titleRef}
           className="text-5xl md:text-7xl lg:text-8xl font-bold mb-6 drop-shadow-2xl opacity-100"
