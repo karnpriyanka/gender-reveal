@@ -6,9 +6,10 @@ import { gsap } from 'gsap'
 interface CountdownProps {
   initialSeconds?: number
   onComplete?: () => void
+  countdownAudioSrc?: string
 }
 
-export default function Countdown({ initialSeconds = 30, onComplete }: CountdownProps) {
+export default function Countdown({ initialSeconds = 30, onComplete, countdownAudioSrc }: CountdownProps) {
   const [seconds, setSeconds] = useState(initialSeconds)
   const [isActive, setIsActive] = useState(false)
   const [hasStarted, setHasStarted] = useState(false)
@@ -16,6 +17,76 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
   const secondsRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const sparkleRefs = useRef<HTMLDivElement[]>([])
+  const countdownAudioRef = useRef<HTMLAudioElement>(null)
+  const audioReadyRef = useRef(false)
+
+  // Setup audio element and prepare for playback
+  useEffect(() => {
+    if (!countdownAudioSrc) return
+
+    let cleanup: (() => void) | null = null
+
+    // Wait a bit for the audio element to be rendered
+    const setupAudio = () => {
+      if (!countdownAudioRef.current) {
+        // Retry after a short delay if element isn't ready
+        setTimeout(setupAudio, 50)
+        return
+      }
+
+      const audio = countdownAudioRef.current
+    
+      // Prepare audio settings
+      audio.volume = 1.0
+      audio.preload = 'auto'
+
+      const handleCanPlay = () => {
+        console.log('Countdown audio ready to play')
+        audioReadyRef.current = true
+      }
+
+      const handleLoadedData = () => {
+        console.log('Countdown audio data loaded')
+      }
+
+      const handleError = (e: Event) => {
+        console.error('Countdown audio error:', e)
+        const error = audio.error
+        if (error) {
+          console.error('Audio error details:', {
+            code: error.code,
+            message: error.message
+          })
+        }
+      }
+
+      audio.addEventListener('canplay', handleCanPlay)
+      audio.addEventListener('loadeddata', handleLoadedData)
+      audio.addEventListener('error', handleError)
+
+      // Store cleanup function
+      cleanup = () => {
+        audio.removeEventListener('canplay', handleCanPlay)
+        audio.removeEventListener('loadeddata', handleLoadedData)
+        audio.removeEventListener('error', handleError)
+      }
+
+      // Try to load the audio
+      try {
+        audio.load()
+      } catch (err) {
+        console.warn('Failed to load countdown audio:', err)
+      }
+    }
+
+    setupAudio()
+
+    return () => {
+      if (cleanup) {
+        cleanup()
+      }
+    }
+  }, [countdownAudioSrc])
 
   useEffect(() => {
     // Create sparkle elements
@@ -62,6 +133,56 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
     setIsActive(true)
     setSeconds(initialSeconds)
 
+    // Play countdown audio if provided
+    // Since countdown starts on user scroll (user interaction), audio should play
+    const playCountdownAudio = () => {
+      if (!countdownAudioRef.current || !countdownAudioSrc) {
+        console.log('No countdown audio available')
+        return
+      }
+
+      const audio = countdownAudioRef.current
+      console.log('Attempting to play countdown audio...')
+      console.log('Audio ready state:', audio.readyState)
+      console.log('Audio src:', audio.src)
+
+      // Reset audio to start from beginning
+      audio.currentTime = 0
+      audio.volume = 1.0
+
+      // Try to play the audio
+      const playPromise = audio.play()
+      
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('Countdown audio playing successfully')
+          })
+          .catch((error) => {
+            console.error('Countdown audio play failed:', error)
+            // Retry after ensuring audio is loaded
+            if (audio.readyState < 2) {
+              audio.load()
+              audio.addEventListener('canplay', () => {
+                audio.play().catch((err) => {
+                  console.error('Countdown audio retry failed:', err)
+                })
+              }, { once: true })
+            } else {
+              // Audio is loaded, retry play
+              setTimeout(() => {
+                audio.play().catch((err) => {
+                  console.error('Countdown audio second retry failed:', err)
+                })
+              }, 200)
+            }
+          })
+      }
+    }
+
+    // Small delay to ensure audio element is ready
+    setTimeout(playCountdownAudio, 50)
+
     // Animate container entrance
     if (containerRef.current) {
       gsap.from(containerRef.current, {
@@ -104,7 +225,7 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
         ease: 'sine.inOut',
       })
     })
-  }, [hasStarted, initialSeconds])
+  }, [hasStarted, initialSeconds, countdownAudioSrc])
 
   // Animate number changes
   useEffect(() => {
@@ -135,12 +256,20 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
     }
   }, [startCountdown])
 
-  if (!hasStarted) {
-    return null
-  }
-
   return (
-    <div ref={containerRef} className="relative py-12 px-4">
+    <>
+      {/* Hidden countdown audio element - always rendered if src provided */}
+      {countdownAudioSrc && (
+        <audio
+          ref={countdownAudioRef}
+          src={countdownAudioSrc}
+          preload="auto"
+          style={{ display: 'none' }}
+        />
+      )}
+
+      {!hasStarted ? null : (
+        <div ref={containerRef} className="relative py-12 px-4">
       <div className="flex justify-center">
         <div ref={secondsRef} className="relative">
           <div className="bg-gradient-to-br from-pink-400 via-purple-500 to-blue-500 rounded-2xl p-8 shadow-2xl transform transition-all duration-300">
@@ -186,6 +315,8 @@ export default function Countdown({ initialSeconds = 30, onComplete }: Countdown
           }
         }
       `}</style>
-    </div>
+        </div>
+      )}
+    </>
   )
 }

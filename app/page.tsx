@@ -77,6 +77,7 @@ export default function Home() {
               <Countdown 
                 initialSeconds={10}
                 onComplete={handleCountdownComplete}
+                countdownAudioSrc="/music/countdown-10-to-0.wav"
               />
             </>
           ) : (
