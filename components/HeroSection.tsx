@@ -64,7 +64,7 @@ export default function HeroSection({ images }: HeroSectionProps) {
           images.map((src, index) => (
             <div
               key={index}
-              className={`hero-image absolute inset-0 transition-opacity duration-1000 ${
+              className={`hero-image absolute inset-0 transition-opacity duration-1000 bg-gradient-to-br from-pink-400 via-purple-500 to-blue-500 ${
                 index === currentImageIndex ? 'opacity-100' : 'opacity-0'
               }`}
             >
@@ -72,7 +72,7 @@ export default function HeroSection({ images }: HeroSectionProps) {
                 src={src}
                 alt={`Hero ${index + 1}`}
                 fill
-                className="object-cover"
+                className="object-contain"
                 priority={index === 0}
               />
               <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-black/70" />
